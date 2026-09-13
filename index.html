@@ -49,7 +49,15 @@
     h1 { margin: 7px 0 4px; font-family: Georgia, "Times New Roman", serif; font-size: clamp(2.3rem, 8vw, 4rem); line-height: 1; letter-spacing: -.045em; }
     .date { color: var(--muted); font-size: .96rem; }
 
-    .composer { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin: 0 38px 24px; }
+    .composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; margin: 0 38px 24px; }
+    .due-field { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: .84rem; }
+    .due-field input { width: auto; max-width: 100%; padding: 9px 12px; }
+    .task-content { min-width: 0; }
+    .task-due { display: block; margin-top: 5px; color: var(--muted); font-size: .78rem; }
+    .task-due.overdue { color: var(--accent-dark); }
+    .task-due.today { color: var(--accent-dark); font-weight: 700; }
+    li.done .task-due { color: var(--muted); font-weight: 400; }
+
     input {
       width: 100%; border: 1px solid var(--line); border-radius: 14px; padding: 15px 17px;
       font: inherit; color: var(--ink); background: rgba(255,255,255,.72); outline: none;
@@ -110,6 +118,7 @@
     <form class="composer" id="form">
       <input id="new-task" type="text" maxlength="120" autocomplete="off" placeholder="接下来要做什么？" aria-label="新任务" required>
       <button class="add" type="submit">添加任务</button>
+      <label class="due-field" for="due-date">截止日期（可选）<input id="due-date" type="date" min="0001-01-01" max="9999-12-31"></label>
     </form>
 
     <section class="toolbar" aria-label="任务筛选">
@@ -133,6 +142,7 @@
     const STORAGE_KEY = 'today-list-v1';
     const form = document.querySelector('#form');
     const input = document.querySelector('#new-task');
+    const dueInput = document.querySelector('#due-date');
     const list = document.querySelector('#list');
     const count = document.querySelector('#count');
     const progress = document.querySelector('#progress');
@@ -146,6 +156,17 @@
 
     function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks)); }
     function visible(task) { return activeFilter === 'all' || (activeFilter === 'done' ? task.done : !task.done); }
+
+    function localDateKey(date = new Date()) {
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+
+    function deadlineLabel(dueDate, done) {
+      const today = localDateKey();
+      const status = done ? '' : dueDate < today ? 'overdue' : dueDate === today ? 'today' : '';
+      const suffix = status === 'overdue' ? ' · 已逾期' : status === 'today' ? ' · 今天到期' : '';
+      return { status, text: `截止 ${dueDate}${suffix}` };
+    }
 
     function render() {
       list.innerHTML = '';
@@ -165,9 +186,17 @@
           <button class="check" type="button" aria-label="${task.done ? '标记为未完成' : '标记为已完成'}">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3 8 3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
-          <span class="task-text"></span>
+          <div class="task-content"><span class="task-text"></span></div>
           <button class="delete" type="button" aria-label="删除任务">×</button>`;
         item.querySelector('.task-text').textContent = task.text;
+        if (task.dueDate) {
+          const deadline = deadlineLabel(task.dueDate, task.done);
+          const date = document.createElement('time');
+          date.dateTime = task.dueDate;
+          date.className = `task-due ${deadline.status}`;
+          date.textContent = deadline.text;
+          item.querySelector('.task-content').appendChild(date);
+        }
         list.appendChild(item);
       });
 
@@ -180,8 +209,9 @@
       event.preventDefault();
       const text = input.value.trim();
       if (!text) return;
-      tasks.unshift({ id: crypto.randomUUID(), text, done: false });
+      tasks.unshift({ id: crypto.randomUUID(), text, done: false, dueDate: dueInput.value || null });
       input.value = '';
+      dueInput.value = '';
       save(); render(); input.focus();
     });
 
@@ -205,6 +235,9 @@
       save(); render();
     });
 
+    // Refresh date-sensitive labels when returning to the page and across midnight.
+    window.addEventListener('focus', render);
+    setInterval(render, 60_000);
     render();
   </script>
 </body>
